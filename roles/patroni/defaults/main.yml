@@ -1,0 +1,11 @@
+---
+replicator_user: replicator
+replicator_password: rep-pass
+etcd_cluster: etcd-node1:2379
+patroni_scope: postgres
+patroni_watchdog_mode: off
+postgres_version: 14
+postgres_data_dir: /var/lib/postgresql/data
+postgres_user: postgres
+postgres_password: postgres
+postgres_port: 5432

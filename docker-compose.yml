@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  etcd-node1:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: etcd-node1
+    hostname: etcd-node1
+    networks:
+      - patroni_net
+    environment:
+      - ETCD_ENABLE_V2=true
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd-node1:2379
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd_data:/etcd-data
+
+  db-node1:
+    build: .
+    container_name: db-node1
+    hostname: db-node1
+    networks:
+      - patroni_net
+    ports:
+      - "223:22"
+      - "5432:5432"
+      - "8008:8008"
+    volumes:
+      - ./docker_data/pg_node1_data:/var/lib/postgresql/data
+    depends_on:
+      - etcd-node1
+    shm_size: '256m'
+
+  db-node2:
+    build: .
+    container_name: db-node2
+    hostname: db-node2
+    networks:
+      - patroni_net
+    ports:
+      - "224:22"
+      - "5433:5432"
+      - "8009:8008"
+    volumes:
+      - ./docker_data/pg_node2_data:/var/lib/postgresql/data
+    depends_on:
+      - etcd-node1
+    shm_size: '256m'
+
+  db-node3:
+    build: .
+    container_name: db-node3
+    hostname: db-node3
+    networks:
+      - patroni_net
+    ports:
+      - "225:22"
+      - "5434:5432"
+      - "8010:8008"
+    volumes:
+      - ./docker_data/pg_node3_data:/var/lib/postgresql/data
+    depends_on:
+      - etcd-node1
+    shm_size: '256m'
+
+networks:
+  patroni_net:
+    driver: bridge
+
+volumes:
+  etcd_data:

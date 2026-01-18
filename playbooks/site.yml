@@ -1,0 +1,27 @@
+---
+- name: Deploy etcd cluster
+  hosts: etcd
+  become: no
+  connection: local
+  gather_facts: no
+  roles:
+    - etcd
+  tags: etcd_setup
+
+- name: Deploy PostgreSQL nodes
+  hosts: db
+  become: no
+  connection: local
+  gather_facts: no
+  roles:
+    - postgresql
+  tags: db_setup
+
+- name: Deploy Patroni cluster
+  hosts: db
+  become: no
+  connection: local
+  gather_facts: no
+  roles:
+    - patroni
+  tags: patroni_setup

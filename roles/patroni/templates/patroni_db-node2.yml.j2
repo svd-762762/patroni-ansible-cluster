@@ -1,0 +1,34 @@
+scope: postgres
+namespace: /patroni
+name: db-node2
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: db-node2:8008
+
+etcd:
+  host: etcd-node1
+  port: 2379
+
+postgresql:
+  data_dir: /var/lib/postgresql/data
+  bin_dir: /usr/lib/postgresql/14/bin
+  listen: 0.0.0.0:5432
+  connect_address: db-node2:5432
+  
+  authentication:
+    replication:
+      username: replicator
+      password: rep-pass
+
+  parameters:
+    max_connections: 200
+    wal_level: replica
+    max_wal_senders: 10
+    max_replication_slots: 10
+    hot_standby: 'on'
+
+  initdb:
+    - encoding: UTF8
+    - locale: en_US.UTF-8
+    - data-checksums

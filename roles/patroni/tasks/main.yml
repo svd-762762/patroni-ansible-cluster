@@ -1,0 +1,85 @@
+---
+- name: Install Patroni and dependencies
+  shell: docker exec {{ inventory_hostname }} bash -c "pip3 install -q patroni[etcd3] psycopg2-binary pyyaml 2>&1 | tail -5"
+  register: patroni_install
+  tags: patroni_setup
+
+- name: Show Patroni install
+  debug:
+    msg: "{{ patroni_install.stdout_lines }}"
+  tags: patroni_setup
+
+- name: Create Patroni config directory
+  shell: docker exec {{ inventory_hostname }} bash -c "mkdir -p /etc/patroni && chown postgres:postgres /etc/patroni && chmod 700 /etc/patroni"
+  tags: patroni_setup
+
+- name: Generate Patroni config
+  template:
+    src: "patroni_{{ inventory_hostname }}.yml.j2"
+    dest: "/tmp/patroni_{{ inventory_hostname }}.yml"
+  tags: patroni_setup
+
+- name: Copy Patroni config to container
+  shell: cat /tmp/patroni_{{ inventory_hostname }}.yml | docker exec -i {{ inventory_hostname }} tee /etc/patroni/patroni.yml > /dev/null
+  tags: patroni_setup
+
+- name: Fix Patroni config permissions
+  shell: docker exec {{ inventory_hostname }} chown postgres:postgres /etc/patroni/patroni.yml
+  tags: patroni_setup
+
+- name: Fix PostgreSQL data directory permissions
+  shell: docker exec {{ inventory_hostname }} bash -c "chown -R postgres:postgres /var/lib/postgresql/data && chmod 700 /var/lib/postgresql/data"
+  tags: patroni_setup
+
+- name: Create supervisor log directory
+  shell: docker exec {{ inventory_hostname }} bash -c "mkdir -p /var/log/supervisor && chown postgres:postgres /var/log/supervisor && chmod 755 /var/log/supervisor"
+  tags: patroni_setup
+
+- name: Enable Patroni autostart in supervisor config
+  shell: docker exec {{ inventory_hostname }} sed -i 's/autostart=false/autostart=true/' /etc/supervisor/conf.d/supervisord.conf
+  tags: patroni_setup
+
+- name: Restart container to reload supervisor config
+  shell: docker restart {{ inventory_hostname }}
+  tags: patroni_setup
+
+- name: Wait for container to be ready
+  shell: docker exec {{ inventory_hostname }} bash -c "sleep 2 && ps aux | grep -q supervisord"
+  retries: 5
+  delay: 2
+  tags: patroni_setup
+
+- name: Wait for Patroni to start (check logs)
+  shell: docker exec {{ inventory_hostname }} bash -c "sleep 3 && supervisorctl status patroni || echo 'starting'"
+  register: patroni_status_check
+  ignore_errors: true
+  tags: patroni_setup
+
+- name: Show Patroni status
+  debug:
+    msg: "{{ patroni_status_check.stdout }}"
+  tags: patroni_setup
+
+- name: Wait for Patroni health endpoint
+  shell: docker exec {{ inventory_hostname }} curl -s http://localhost:8008/health 2>/dev/null | head -c 200
+  register: patroni_health
+  until: "'is_leader' in patroni_health.stdout or 'role' in patroni_health.stdout or 'state' in patroni_health.stdout"
+  retries: 30
+  delay: 2
+  ignore_errors: true
+  tags: patroni_setup
+
+- name: Show Patroni health status
+  debug:
+    msg: "{{ patroni_health.stdout }}"
+  tags: patroni_setup
+
+- name: Show Patroni logs
+  shell: docker exec {{ inventory_hostname }} tail -50 /var/log/supervisor/patroni.log 2>/dev/null || echo "No logs yet"
+  register: patroni_logs
+  tags: patroni_setup
+
+- name: Print Patroni logs (last 20 lines)
+  debug:
+    msg: "{{ patroni_logs.stdout_lines[-20:] }}"
+  tags: patroni_setup

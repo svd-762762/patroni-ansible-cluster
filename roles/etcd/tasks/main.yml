@@ -1,0 +1,20 @@
+---
+- name: Check etcd status
+  shell: docker exec etcd-node1 etcdctl --endpoints=localhost:2379 endpoint health
+  register: etcd_health
+  tags: etcd_setup
+
+- name: Show etcd status
+  debug:
+    msg: "{{ etcd_health.stdout }}"
+  tags: etcd_setup
+
+- name: Enable etcd v2 API
+  shell: docker exec etcd-node1 etcdctl --endpoints=localhost:2379 member list
+  register: etcd_members
+  tags: etcd_setup
+
+- name: Show etcd members
+  debug:
+    msg: "{{ etcd_members.stdout }}"
+  tags: etcd_setup

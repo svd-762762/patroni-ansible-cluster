@@ -1,0 +1,40 @@
+---
+- name: Generate pg_hba.conf content
+  template:
+    src: pg_hba.conf.j2
+    dest: /tmp/pg_hba.conf.{{ inventory_hostname }}
+  tags: db_setup
+
+- name: Generate postgresql.conf content
+  template:
+    src: postgresql.conf.j2
+    dest: /tmp/postgresql.conf.{{ inventory_hostname }}
+  tags: db_setup
+
+- name: Copy configs via docker exec
+  shell: |
+    cat /tmp/pg_hba.conf.{{ inventory_hostname }} | docker exec -i {{ inventory_hostname }} tee /etc/postgresql/14/main/pg_hba.conf > /dev/null
+    cat /tmp/postgresql.conf.{{ inventory_hostname }} | docker exec -i {{ inventory_hostname }} tee /etc/postgresql/14/main/postgresql.conf > /dev/null
+    docker exec {{ inventory_hostname }} chown postgres:postgres /etc/postgresql/14/main/pg_hba.conf /etc/postgresql/14/main/postgresql.conf
+  tags: db_setup
+
+- name: Initialize PostgreSQL cluster
+  shell: docker exec {{ inventory_hostname }} su - postgres -c "/usr/lib/postgresql/14/bin/initdb -D /var/lib/postgresql/data"
+  register: initdb_result
+  ignore_errors: true
+  tags: db_setup
+
+- name: Show initdb result
+  debug:
+    msg: "{{ initdb_result.stdout_lines[-5:] if initdb_result.stdout_lines else 'Already initialized' }}"
+  tags: db_setup
+
+- name: Show PostgreSQL version
+  shell: docker exec {{ inventory_hostname }} /usr/lib/postgresql/14/bin/postgres --version
+  register: pg_version
+  tags: db_setup
+
+- name: Print PostgreSQL version
+  debug:
+    msg: "{{ pg_version.stdout }}"
+  tags: db_setup

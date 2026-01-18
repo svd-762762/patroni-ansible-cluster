@@ -1,0 +1,284 @@
+#!/bin/bash
+set -e
+
+echo "🔄 Обновление Ansible ролей..."
+
+# ============================================================================
+# ОБНОВЛЕНИЕ РОЛИ ETCD
+# ============================================================================
+
+echo "📝 Обновляем roles/etcd/tasks/main.yml..."
+
+cat > roles/etcd/tasks/main.yml << 'ETCD_TASKS'
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+  tags: etcd_setup
+
+- name: Install dependencies
+  apt:
+    name:
+      - curl
+      - wget
+      - iputils-ping
+      - net-tools
+      - openssh-client
+      - openssh-server
+    state: present
+  tags: etcd_setup
+
+- name: Create etcd data directory
+  file:
+    path: "{{ etcd_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: etcd_setup
+
+- name: Download etcd
+  shell: |
+    cd /tmp
+    wget -q https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz
+    tar -xzf etcd-{{ etcd_version }}-linux-amd64.tar.gz
+    cp etcd-{{ etcd_version }}-linux-amd64/etcd /usr/local/bin/
+    cp etcd-{{ etcd_version }}-linux-amd64/etcdctl /usr/local/bin/
+    chmod +x /usr/local/bin/etcd*
+    rm -rf etcd-{{ etcd_version }}-linux-amd64*
+  args:
+    creates: /usr/local/bin/etcd
+  tags: etcd_setup
+
+- name: Create etcd systemd service file
+  template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart etcd
+  tags: etcd_setup
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  tags: etcd_setup
+
+- name: Enable and start etcd service
+  systemd:
+    name: etcd
+    enabled: yes
+    state: started
+  tags: etcd_setup
+
+- name: Wait for etcd to be ready
+  shell: /usr/local/bin/etcdctl --endpoints=http://localhost:2379 endpoint health
+  register: etcd_health
+  until: etcd_health.rc == 0
+  retries: 30
+  delay: 2
+  tags: etcd_setup
+ETCD_TASKS
+
+echo "✅ roles/etcd/tasks/main.yml обновлен"
+
+# ============================================================================
+# ОБНОВЛЕНИЕ РОЛИ POSTGRESQL
+# ============================================================================
+
+echo "📝 Обновляем roles/postgresql/tasks/main.yml..."
+
+cat > roles/postgresql/tasks/main.yml << 'PG_TASKS'
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+  tags: db_setup
+
+- name: Install PostgreSQL and dependencies
+  apt:
+    name:
+      - postgresql-{{ postgres_version }}
+      - postgresql-server-dev-{{ postgres_version }}
+      - postgresql-contrib-{{ postgres_version }}
+      - python3-pip
+      - python3-dev
+      - curl
+      - net-tools
+      - iputils-ping
+      - openssh-client
+      - openssh-server
+    state: present
+  tags: db_setup
+
+- name: Create PostgreSQL data directory
+  file:
+    path: "{{ postgres_data_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  tags: db_setup
+
+- name: Stop PostgreSQL service
+  systemd:
+    name: postgresql
+    state: stopped
+  ignore_errors: yes
+  tags: db_setup
+
+- name: Remove default PostgreSQL cluster
+  shell: |
+    rm -rf {{ postgres_data_dir }}/*
+  ignore_errors: yes
+  tags: db_setup
+
+- name: Update pg_hba.conf
+  template:
+    src: pg_hba.conf.j2
+    dest: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: '0640'
+  tags: db_setup
+
+- name: Update postgresql.conf
+  template:
+    src: postgresql.conf.j2
+    dest: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    owner: postgres
+    group: postgres
+    mode: '0644'
+  tags: db_setup
+
+- name: Disable PostgreSQL service (managed by Patroni)
+  systemd:
+    name: postgresql
+    enabled: no
+    state: stopped
+  tags: db_setup
+PG_TASKS
+
+echo "✅ roles/postgresql/tasks/main.yml обновлен"
+
+# ============================================================================
+# ОБНОВЛЕНИЕ РОЛИ PATRONI
+# ============================================================================
+
+echo "📝 Обновляем roles/patroni/tasks/main.yml..."
+
+cat > roles/patroni/tasks/main.yml << 'PATRONI_TASKS'
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+  tags: patroni_setup
+
+- name: Install system dependencies
+  apt:
+    name:
+      - iputils-ping
+      - net-tools
+      - openssh-client
+      - openssh-server
+    state: present
+  tags: patroni_setup
+
+- name: Install Python dependencies
+  apt:
+    name:
+      - python3-pip
+      - python3-dev
+    state: present
+  tags: patroni_setup
+
+- name: Install Patroni via pip
+  pip:
+    name:
+      - patroni[etcd3]==3.0.4
+      - psycopg2-binary
+      - pyyaml
+    executable: pip3
+  tags: patroni_setup
+
+- name: Create Patroni config directory
+  file:
+    path: /etc/patroni
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+  tags: patroni_setup
+
+- name: Create /tmp/pgpass location
+  file:
+    path: /tmp
+    state: directory
+    mode: '1777'
+  tags: patroni_setup
+
+- name: Generate Patroni configuration
+  template:
+    src: patroni.yml.j2
+    dest: /etc/patroni/patroni.yml
+    owner: postgres
+    group: postgres
+    mode: '0640'
+  notify: restart patroni
+  tags: patroni_setup
+
+- name: Create Patroni systemd service
+  template:
+    src: patroni.service.j2
+    dest: /etc/systemd/system/patroni.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart patroni
+  tags: patroni_setup
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  tags: patroni_setup
+
+- name: Enable and start Patroni service
+  systemd:
+    name: patroni
+    enabled: yes
+    state: started
+  tags: patroni_setup
+
+- name: Wait for Patroni to initialize cluster
+  shell: |
+    sudo -u postgres patronictl -c /etc/patroni/patroni.yml list 2>/dev/null | grep -q "running"
+  register: patroni_ready
+  until: patroni_ready.rc == 0
+  retries: 60
+  delay: 2
+  tags: patroni_setup
+PATRONI_TASKS
+
+echo "✅ roles/patroni/tasks/main.yml обновлен"
+
+# ============================================================================
+# ФИНИШ
+# ============================================================================
+
+echo ""
+echo "✅ ВСЕ РОЛИ ОБНОВЛЕНЫ!"
+echo ""
+echo "📋 Следующие шаги:"
+echo ""
+echo "1. Очистка и перезапуск контейнеров:"
+echo "   docker-compose down -v"
+echo "   docker-compose up -d"
+echo ""
+echo "2. Развертывание кластера:"
+echo "   ansible-playbook -i inventory/hosts.ini playbooks/site.yml -v"
+echo ""
+echo "3. Проверка статуса:"
+echo "   docker exec db-node1 sudo -u postgres patronictl -c /etc/patroni/patroni.yml list"
+echo ""
+
