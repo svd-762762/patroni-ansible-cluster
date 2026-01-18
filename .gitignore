@@ -1,0 +1,8 @@
+docker_data/
+docker_data/pg_node1_data/
+docker_data/pg_node2_data/
+docker_data/pg_node3_data/
+.DS_Store
+*.log
+*.swp
+.env.local
